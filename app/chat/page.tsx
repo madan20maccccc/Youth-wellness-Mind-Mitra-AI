@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Brain, Send, Mic, Home, Smile, Meh, Frown, Heart, Star } from "lucide-react"
+import { Brain, Send, Mic, Home, Smile, Meh, Frown, Heart, Star, Volume2, VolumeX } from "lucide-react"
 import Link from "next/link"
 
 interface Message {
@@ -29,6 +29,11 @@ export default function ChatPage() {
   const [isTyping, setIsTyping] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [showEmotionPicker, setShowEmotionPicker] = useState(false)
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([])
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -39,6 +44,89 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      const chunks: Blob[] = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(chunks, { type: "audio/wav" })
+        // Convert speech to text (simplified - in real app you'd use speech recognition API)
+        setInputValue("Voice message recorded") // Placeholder - replace with actual speech-to-text
+        stream.getTracks().forEach((track) => track.stop())
+      }
+
+      recorder.start()
+      setMediaRecorder(recorder)
+      setAudioChunks(chunks)
+      setIsRecording(true)
+    } catch (error) {
+      console.error("Error accessing microphone:", error)
+      alert("Please allow microphone access to use voice recording")
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop()
+      setIsRecording(false)
+      setMediaRecorder(null)
+    }
+  }
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
+
+  const speakText = (text: string, messageId: string) => {
+    if ("speechSynthesis" in window) {
+      // Stop any current speech
+      window.speechSynthesis.cancel()
+
+      if (speakingMessageId === messageId) {
+        // If already speaking this message, stop it
+        setSpeakingMessageId(null)
+        setIsSpeaking(false)
+        return
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = 0.9
+      utterance.pitch = 1
+      utterance.volume = 0.8
+
+      utterance.onstart = () => {
+        setIsSpeaking(true)
+        setSpeakingMessageId(messageId)
+      }
+
+      utterance.onend = () => {
+        setIsSpeaking(false)
+        setSpeakingMessageId(null)
+      }
+
+      utterance.onerror = () => {
+        setIsSpeaking(false)
+        setSpeakingMessageId(null)
+      }
+
+      window.speechSynthesis.speak(utterance)
+    } else {
+      alert("Text-to-speech is not supported in your browser")
+    }
+  }
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return
@@ -167,17 +255,31 @@ export default function ChatPage() {
                     {message.sender === "user" ? "U" : <Brain className="w-4 h-4" />}
                   </AvatarFallback>
                 </Avatar>
-                <Card
-                  className={`p-4 ${message.sender === "user" ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white" : "bg-white"} shadow-sm hover:shadow-md transition-shadow`}
-                >
-                  <p className="text-sm leading-relaxed">{message.text}</p>
-                  {message.emotion && (
-                    <div className="mt-2 flex items-center space-x-1">
-                      <div className="w-2 h-2 bg-current rounded-full opacity-50" />
-                      <span className="text-xs opacity-75">Feeling {message.emotion}</span>
-                    </div>
-                  )}
-                </Card>
+                <div className="flex flex-col space-y-2">
+                  <Card
+                    className={`p-4 ${message.sender === "user" ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white" : "bg-white"} shadow-sm hover:shadow-md transition-shadow`}
+                  >
+                    <p className="text-sm leading-relaxed">{message.text}</p>
+                    {message.emotion && (
+                      <div className="mt-2 flex items-center space-x-1">
+                        <div className="w-2 h-2 bg-current rounded-full opacity-50" />
+                        <span className="text-xs opacity-75">Feeling {message.emotion}</span>
+                      </div>
+                    )}
+                  </Card>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => speakText(message.text, message.id)}
+                    className={`self-start w-8 h-8 p-0 ${message.sender === "user" ? "self-end" : ""} ${speakingMessageId === message.id ? "text-blue-500" : "text-gray-400"} hover:text-gray-600`}
+                  >
+                    {speakingMessageId === message.id ? (
+                      <VolumeX className="w-4 h-4" />
+                    ) : (
+                      <Volume2 className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           ))}
@@ -242,6 +344,12 @@ export default function ChatPage() {
               <Smile className="w-4 h-4 mr-1" />
               Mood
             </Button>
+            {isRecording && (
+              <div className="flex items-center space-x-2 text-red-500 text-sm">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                Recording...
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-2">
             <div className="flex-1 relative">
@@ -256,10 +364,10 @@ export default function ChatPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                onClick={() => setIsRecording(!isRecording)}
+                className={`absolute right-1 top-1/2 -translate-y-1/2 ${isRecording ? "text-red-500 bg-red-50" : "text-gray-400"} hover:text-gray-600`}
+                onClick={toggleRecording}
               >
-                <Mic className={`w-4 h-4 ${isRecording ? "text-red-500" : ""}`} />
+                <Mic className={`w-4 h-4 ${isRecording ? "animate-pulse" : ""}`} />
               </Button>
             </div>
             <Button
