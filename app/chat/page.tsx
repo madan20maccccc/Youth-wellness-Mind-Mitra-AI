@@ -54,28 +54,40 @@ export default function ChatPage() {
     setInputValue("")
     setIsTyping(true)
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: inputValue }),
+      })
+
+      const data = await response.json()
+
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
-        text: generateAIResponse(inputValue),
+        text: data.message,
         sender: "ai",
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, aiResponse])
+    } catch (error) {
+      console.error("Chat error:", error)
+      const errorResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        text: "I'm sorry, I'm having trouble connecting right now. Please try again.",
+        sender: "ai",
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorResponse])
+    } finally {
       setIsTyping(false)
-    }, 1500)
-  }
-
-  const generateAIResponse = (userInput: string): string => {
-    const responses = [
-      "I hear you, and I want you to know that your feelings are valid. Can you tell me more about what's been on your mind?",
-      "Thank you for sharing that with me. It takes courage to open up. How has this been affecting your daily life?",
-      "I'm here to listen without judgment. What would help you feel more supported right now?",
-      "That sounds challenging. Remember that it's okay to feel this way. What are some things that usually bring you comfort?",
-      "I appreciate you trusting me with your thoughts. What's one small step you could take today to care for yourself?",
-    ]
-    return responses[Math.floor(Math.random() * responses.length)]
+    }
   }
 
   const handleEmotionSelect = (emotion: string) => {
